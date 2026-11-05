@@ -22,7 +22,7 @@ from model.sequential_predictor import SequentialNextCandlePredictor
 
 def main():
     parser = argparse.ArgumentParser(description="Kronos Sequential Next-Candle Predictor")
-    parser.add_argument("--symbol", type=str, default="BTCUSDT", help="Asset symbol (e.g. BTCUSDT)")
+    parser.add_argument("--symbol", type=str, default="BTC/USD", help="Asset symbol (default: BTC/USD)")
     parser.add_argument("--timeframe", type=str, default="5m", choices=["5m", "15m"], help="Timeframe (5m or 15m)")
     parser.add_argument("--mode", type=str, default="live", choices=["live", "replay"], help="Stream mode")
     parser.add_argument("--steps", type=int, default=1, help="Number of sequential steps to predict")
@@ -32,6 +32,7 @@ def main():
     print(f"\n=======================================================")
     print(f"🚀 Kronos Next-Candle Predictor [{args.timeframe.upper()}] - {args.symbol}")
     print(f"Mode: {args.mode.upper()} | Device: {args.device}")
+    print(f"Paire: BTC/USD Spot")
     print(f"=======================================================\n")
 
     print("Chargement du modèle Kronos-mini...")

@@ -25,7 +25,7 @@ CORS(app)
 # Global model state
 predictor: Optional[KronosPredictor] = None
 seq_engine: Optional[SequentialNextCandlePredictor] = None
-streamer: MarketDataStreamer = MarketDataStreamer()
+streamer: MarketDataStreamer = MarketDataStreamer("BTC/USD")
 replay_streamer: Optional[HistoricalReplayStreamer] = None
 last_pending_prediction: Optional[CandlePrediction] = None
 
@@ -61,7 +61,7 @@ def predict_next_step():
     init_kronos()
 
     data = request.get_json() or {}
-    symbol = data.get("symbol", "BTCUSDT")
+    symbol = data.get("symbol", "BTC/USD")
     timeframe = data.get("timeframe", "5m")
     mode = data.get("mode", "live")
 

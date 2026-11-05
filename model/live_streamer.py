@@ -50,12 +50,16 @@ def resample_klines(df: pd.DataFrame, timeframe: str = "15min") -> pd.DataFrame:
 
 
 class MarketDataStreamer:
-    """Fetches live or historical k-lines from Binance / Binance US."""
+    """Fetches live or historical k-lines from Coinbase (BTC/USD native) or Binance / Binance US."""
 
-    BINANCE_ENDPOINTS = [
-        "https://api.binance.com/api/v3/klines",
-        "https://api.binance.us/api/v3/klines"
-    ]
+    COINBASE_GRANULARITY = {
+        "5m": 300,
+        "M5": 300,
+        "5min": 300,
+        "15m": 900,
+        "M15": 900,
+        "15min": 900
+    }
 
     INTERVAL_MAP = {
         "5m": "5m",
@@ -66,8 +70,8 @@ class MarketDataStreamer:
         "15min": "15m"
     }
 
-    def __init__(self, default_symbol: str = "BTCUSDT"):
-        self.default_symbol = default_symbol.upper()
+    def __init__(self, default_symbol: str = "BTC/USD"):
+        self.default_symbol = default_symbol
 
     def fetch_klines(
         self,
@@ -75,30 +79,72 @@ class MarketDataStreamer:
         interval: str = "5m",
         limit: int = 400
     ) -> pd.DataFrame:
-        """Fetch latest k-lines for a symbol and interval (5m or 15m)."""
-        symbol = (symbol or self.default_symbol).upper()
+        """Fetch latest k-lines for a symbol and interval (5m or 15m).
+        Specialized for BTC/USD with multi-exchange fallback:
+        1. Coinbase Pro (direct BTC-USD spot)
+        2. Binance US (BTCUSD)
+        3. Binance (BTCUSDT)
+        4. Simulated buffer (fallback)
+        """
+        symbol_raw = (symbol or self.default_symbol).strip().upper()
         norm_interval = self.INTERVAL_MAP.get(interval, "5m")
 
-        last_err = None
-        for base_url in self.BINANCE_ENDPOINTS:
-            url = f"{base_url}?symbol={symbol}&interval={norm_interval}&limit={limit}"
-            req = urllib.request.Request(
-                url,
-                headers={"User-Agent": "Mozilla/5.0 (Kronos-Streaming-Client)"}
-            )
-            try:
-                with urllib.request.urlopen(req, timeout=10) as resp:
-                    raw_data = resp.read().decode('utf-8')
-                    parsed = json.loads(raw_data)
-                    if isinstance(parsed, list) and len(parsed) > 0 and isinstance(parsed[0], list):
-                        return self._parse_binance_klines(parsed)
-            except Exception as e:
-                last_err = e
-                continue
+        # 1. Try Coinbase API (standard for genuine BTC/USD spot pair worldwide)
+        if "USD" in symbol_raw:
+            cb_df = self._fetch_coinbase("BTC-USD", interval, limit)
+            if cb_df is not None and not cb_df.empty:
+                return cb_df
 
-        # If live API is restricted or network unavailable, fallback to generated/local sample
-        print(f"[MarketDataStreamer] Live fetch failed ({last_err}), using local fallback buffer.")
-        return self._generate_fallback_klines(symbol, norm_interval, limit)
+        # 2. Try Binance US BTCUSD
+        binance_symbols = ["BTCUSD", "BTCUSDT"] if "USD" in symbol_raw else [symbol_raw.replace("/", "").replace("-", "")]
+        for b_sym in binance_symbols:
+            for base_url in ["https://api.binance.us/api/v3/klines", "https://api.binance.com/api/v3/klines"]:
+                url = f"{base_url}?symbol={b_sym}&interval={norm_interval}&limit={limit}"
+                try:
+                    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+                    with urllib.request.urlopen(req, timeout=8) as resp:
+                        parsed = json.loads(resp.read().decode('utf-8'))
+                        if isinstance(parsed, list) and len(parsed) > 0 and isinstance(parsed[0], list):
+                            return self._parse_binance_klines(parsed)
+                except Exception:
+                    continue
+
+        # 3. Fallback
+        return self._generate_fallback_klines("BTC/USD", norm_interval, limit)
+
+    def _fetch_coinbase(self, product_id: str, interval: str, limit: int) -> Optional[pd.DataFrame]:
+        granularity = self.COINBASE_GRANULARITY.get(interval, 300)
+        url = f"https://api.exchange.coinbase.com/products/{product_id}/candles?granularity={granularity}"
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Coinbase-Client)"})
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                data = json.loads(resp.read().decode('utf-8'))
+                if isinstance(data, list) and len(data) > 0 and isinstance(data[0], list):
+                    # Coinbase returns [time, low, high, open, close, volume] ordered descending by time
+                    rows = []
+                    for item in data[:limit]:
+                        ts = pd.to_datetime(item[0], unit='s', utc=True).tz_convert(None)
+                        open_p = float(item[3])
+                        high_p = float(item[2])
+                        low_p = float(item[1])
+                        close_p = float(item[4])
+                        vol = float(item[5])
+                        amt = vol * close_p
+                        rows.append({
+                            "timestamps": ts,
+                            "open": open_p,
+                            "high": high_p,
+                            "low": low_p,
+                            "close": close_p,
+                            "volume": vol,
+                            "amount": amt
+                        })
+                    df = pd.DataFrame(rows)
+                    df = df.sort_values('timestamps').reset_index(drop=True)
+                    return df
+        except Exception as e:
+            pass
+        return None
 
     def _parse_binance_klines(self, raw_list: List[list]) -> pd.DataFrame:
         """Parses Binance raw kline array:
