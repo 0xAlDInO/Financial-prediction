@@ -1,6 +1,7 @@
 """Sequential next-candle prediction engine using Kronos.
-Predicts candle (t+1) from history up to t.
-Classifies direction as ASCENDANT (BULLISH) vs DESCENDANT (BEARISH).
+Predicts candle (t+1) from deep history.
+Calculates and fixes the exact target slot (e.g. 11:14:xx -> 11:15 [ASCENDANT/DESCENDANT]).
+Ensures prediction remains locked and fixed for the active slot until that candle closes.
 Tracks sequential accuracy and prediction vs actual comparisons.
 """
 
@@ -11,15 +12,18 @@ import pandas as pd
 import numpy as np
 
 from model.kronos import Kronos, KronosTokenizer, KronosPredictor
+from model.live_streamer import get_next_candle_slot
 
 
 @dataclass
 class CandlePrediction:
     target_timestamp: str
+    target_slot_label: str    # e.g. "11:15"
+    status_tag: str           # e.g. "11:15 [ASCENDANT]" or "11:15 [DESCENDANT]"
     direction: str            # "ASCENDANT" or "DESCENDANT"
     direction_symbol: str     # "🟢" or "🔴"
-    confidence: float         # 0.0 - 1.0 (estimated probability of the direction)
-    current_close: float      # Last known close price
+    confidence: float         # 0.0 - 1.0 (estimated probability)
+    current_close: float      # Last known confirmed close price
     predicted_open: float
     predicted_high: float
     predicted_low: float
@@ -32,7 +36,9 @@ class CandlePrediction:
 
 
 class SequentialNextCandlePredictor:
-    """Specialized engine for sequential 1-step-ahead (next candle) forecasting."""
+    """Specialized engine for sequential 1-step-ahead (next candle) forecasting
+    with slot locking to prevent mid-interval flickering.
+    """
 
     def __init__(
         self,
@@ -53,6 +59,9 @@ class SequentialNextCandlePredictor:
         self.step_delta = timedelta(minutes=15 if timeframe in ["15m", "15min", "M15"] else 5)
         self.history_predictions: List[CandlePrediction] = []
 
+        # Cache of locked prediction per target slot to ensure fixed prediction during the interval
+        self.slot_cache: Dict[str, CandlePrediction] = {}
+
     def set_timeframe(self, timeframe: str):
         self.timeframe = timeframe
         self.step_delta = timedelta(minutes=15 if timeframe in ["15m", "15min", "M15"] else 5)
@@ -60,11 +69,13 @@ class SequentialNextCandlePredictor:
     def predict_next(
         self,
         df_history: pd.DataFrame,
+        current_time: Optional[datetime] = None,
+        force_recompute: bool = False,
         sample_count: Optional[int] = None,
         temperature: Optional[float] = None
     ) -> CandlePrediction:
-        """Takes historical candles up to now (at least 20 candles recommended, ideally 100-400),
-        predicts the single next candle, its direction, variation and confidence.
+        """Predicts the single next candle slot, e.g. at 11:14:xx -> targets 11:15.
+        Locks and keeps the prediction strictly fixed for that slot unless force_recompute is True.
         """
         if len(df_history) < 5:
             raise ValueError("df_history must have at least 5 candles.")
@@ -73,6 +84,26 @@ class SequentialNextCandlePredictor:
         df['timestamps'] = pd.to_datetime(df['timestamps'])
         df = df.sort_values('timestamps').reset_index(drop=True)
 
+        last_known_candle = df.iloc[-1]
+        last_candle_time = pd.to_datetime(last_known_candle['timestamps'])
+
+        # Determine target slot
+        if current_time is None:
+            # Use next slot from current time or after last candle
+            target_dt = get_next_candle_slot(last_candle_time, self.timeframe)
+            if target_dt <= last_candle_time:
+                target_dt = last_candle_time + self.step_delta
+        else:
+            target_dt = get_next_candle_slot(current_time, self.timeframe)
+
+        target_slot_str = target_dt.strftime("%H:%M")
+        target_timestamp_str = target_dt.strftime("%Y-%m-%d %H:%M:%S")
+
+        # Slot locking: if prediction for this slot is already cached and confirmed, return it to prevent flickering!
+        cache_key = f"{self.timeframe}_{target_timestamp_str}"
+        if not force_recompute and cache_key in self.slot_cache:
+            return self.slot_cache[cache_key]
+
         # Truncate context if longer than max_context
         if len(df) > self.max_context:
             df = df.iloc[-self.max_context:].reset_index(drop=True)
@@ -80,12 +111,8 @@ class SequentialNextCandlePredictor:
         samples = sample_count if sample_count is not None else self.sample_count
         temp = temperature if temperature is not None else self.temperature
 
-        last_known_candle = df.iloc[-1]
-        last_timestamp = pd.to_datetime(last_known_candle['timestamps'])
-        target_timestamp = last_timestamp + self.step_delta
-
         x_timestamp = df['timestamps']
-        y_timestamp = pd.Series([target_timestamp])
+        y_timestamp = pd.Series([target_dt])
 
         x_df = df[['open', 'high', 'low', 'close', 'volume', 'amount']].copy()
 
@@ -110,7 +137,7 @@ class SequentialNextCandlePredictor:
         pred_low = float(pred_row['low'])
         pred_vol = float(max(0.0, pred_row['volume']))
 
-        # Ensure high >= max(open, close) and low <= min(open, close) for candle consistency
+        # Ensure high >= max(open, close) and low <= min(open, close)
         pred_high = max(pred_high, pred_open, pred_close)
         pred_low = min(pred_low, pred_open, pred_close)
 
@@ -120,27 +147,30 @@ class SequentialNextCandlePredictor:
         is_bullish = pred_close >= curr_close
         direction = "ASCENDANT" if is_bullish else "DESCENDANT"
         direction_symbol = "🟢" if is_bullish else "🔴"
+        status_tag = f"{target_slot_str} [{direction}]"
 
-        # Confidence heuristic: based on relative movement strength
-        # Normalized between 55% and 95%
         rel_move = abs(diff_pct)
         confidence = round(min(0.95, max(0.55, 0.50 + rel_move * 0.15)), 3)
 
         prediction = CandlePrediction(
-            target_timestamp=target_timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+            target_timestamp=target_timestamp_str,
+            target_slot_label=target_slot_str,
+            status_tag=status_tag,
             direction=direction,
             direction_symbol=direction_symbol,
             confidence=confidence,
-            current_close=round(curr_close, 4),
-            predicted_open=round(pred_open, 4),
-            predicted_high=round(pred_high, 4),
-            predicted_low=round(pred_low, 4),
-            predicted_close=round(pred_close, 4),
-            expected_change_pct=round(diff_pct, 3),
-            expected_change_abs=round(diff_abs, 4),
+            current_close=round(curr_close, 5),
+            predicted_open=round(pred_open, 5),
+            predicted_high=round(pred_high, 5),
+            predicted_low=round(pred_low, 5),
+            predicted_close=round(pred_close, 5),
+            expected_change_pct=round(diff_pct, 4),
+            expected_change_abs=round(diff_abs, 5),
             predicted_volume=round(pred_vol, 2)
         )
 
+        # Store in slot cache to maintain stability during the candle formation interval
+        self.slot_cache[cache_key] = prediction
         return prediction
 
     def evaluate_and_record(
@@ -148,7 +178,7 @@ class SequentialNextCandlePredictor:
         prediction: CandlePrediction,
         actual_candle: pd.Series
     ) -> CandlePrediction:
-        """Evaluates previous prediction against actual candle that just closed."""
+        """Evaluates prediction against actual candle that just closed."""
         actual_close = float(actual_candle['close'])
         actual_open = float(actual_candle['open'])
         actual_high = float(actual_candle['high'])
@@ -162,10 +192,10 @@ class SequentialNextCandlePredictor:
 
         prediction.actual_candle = {
             "timestamps": str(actual_candle.get('timestamps')),
-            "open": round(actual_open, 4),
-            "high": round(actual_high, 4),
-            "low": round(actual_low, 4),
-            "close": round(actual_close, 4),
+            "open": round(actual_open, 5),
+            "high": round(actual_high, 5),
+            "low": round(actual_low, 5),
+            "close": round(actual_close, 5),
             "volume": round(actual_vol, 2)
         }
         prediction.is_correct = is_correct

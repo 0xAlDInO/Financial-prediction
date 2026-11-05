@@ -22,7 +22,7 @@ from model.sequential_predictor import SequentialNextCandlePredictor
 
 def main():
     parser = argparse.ArgumentParser(description="Kronos Sequential Next-Candle Predictor")
-    parser.add_argument("--symbol", type=str, default="BTC/USD", help="Asset symbol (default: BTC/USD)")
+    parser.add_argument("--symbol", type=str, default="GBP/USD", help="Asset symbol (default: GBP/USD)")
     parser.add_argument("--timeframe", type=str, default="5m", choices=["5m", "15m"], help="Timeframe (5m or 15m)")
     parser.add_argument("--mode", type=str, default="live", choices=["live", "replay"], help="Stream mode")
     parser.add_argument("--steps", type=int, default=1, help="Number of sequential steps to predict")
@@ -32,7 +32,7 @@ def main():
     print(f"\n=======================================================")
     print(f"🚀 Kronos Next-Candle Predictor [{args.timeframe.upper()}] - {args.symbol}")
     print(f"Mode: {args.mode.upper()} | Device: {args.device}")
-    print(f"Paire: BTC/USD Spot")
+    print(f"Paire: GBP/USD Forex")
     print(f"=======================================================\n")
 
     print("Chargement du modèle Kronos-mini...")
@@ -74,12 +74,13 @@ def main():
         df = streamer.fetch_klines(symbol=args.symbol, interval=args.timeframe, limit=50)
         pred = seq_engine.predict_next(df)
 
-        print(f"Horodatage cible: {pred.target_timestamp}")
-        print(f"Direction       : {pred.direction_symbol} {pred.direction}")
-        print(f"Prix actuel     : {pred.current_close}")
-        print(f"Prix prédit     : {pred.predicted_close} ({'+' if pred.expected_change_pct >= 0 else ''}{pred.expected_change_pct}%)")
-        print(f"Fourchette      : [{pred.predicted_low} - {pred.predicted_high}]")
-        print(f"Confiance       : {round(pred.confidence * 100)}%")
+        print(f"Statut Verrouillé : {pred.status_tag}")
+        print(f"Horodatage cible  : {pred.target_timestamp}")
+        print(f"Direction         : {pred.direction_symbol} {pred.direction}")
+        print(f"Prix actuel       : {pred.current_close}")
+        print(f"Prix prédit       : {pred.predicted_close} ({'+' if pred.expected_change_pct >= 0 else ''}{pred.expected_change_pct}%)")
+        print(f"Fourchette        : [{pred.predicted_low} - {pred.predicted_high}]")
+        print(f"Confiance         : {round(pred.confidence * 100)}%")
 
 
 if __name__ == "__main__":

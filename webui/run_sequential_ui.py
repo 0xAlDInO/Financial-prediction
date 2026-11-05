@@ -25,7 +25,7 @@ CORS(app)
 # Global model state
 predictor: Optional[KronosPredictor] = None
 seq_engine: Optional[SequentialNextCandlePredictor] = None
-streamer: MarketDataStreamer = MarketDataStreamer("BTC/USD")
+streamer: MarketDataStreamer = MarketDataStreamer("GBP/USD")
 replay_streamer: Optional[HistoricalReplayStreamer] = None
 last_pending_prediction: Optional[CandlePrediction] = None
 
@@ -61,7 +61,7 @@ def predict_next_step():
     init_kronos()
 
     data = request.get_json() or {}
-    symbol = data.get("symbol", "BTC/USD")
+    symbol = data.get("symbol", "GBP/USD")
     timeframe = data.get("timeframe", "5m")
     mode = data.get("mode", "live")
 
@@ -98,8 +98,8 @@ def predict_next_step():
         })
 
     else:
-        # Live streaming from Binance
-        df = streamer.fetch_klines(symbol=symbol, interval=timeframe, limit=40)
+        # Live streaming with deep historical download (100+ past candles)
+        df = streamer.fetch_klines(symbol=symbol, interval=timeframe, limit=120)
 
         # If we had a previous pending prediction whose timestamp has passed or arrived in df
         if last_pending_prediction is not None and len(df) > 0:
@@ -109,11 +109,12 @@ def predict_next_step():
                 seq_engine.evaluate_and_record(last_pending_prediction, last_candle)
                 last_pending_prediction = None
 
-        # Predict next candle from current full df
-        next_pred = seq_engine.predict_next(df)
+        # Predict next candle from current full df with fixed slot locking
+        now_dt = pd.to_datetime("now", utc=True).tz_convert(None)
+        next_pred = seq_engine.predict_next(df, current_time=now_dt)
         last_pending_prediction = next_pred
 
-        recent_candles = df.tail(30).to_dict(orient="records")
+        recent_candles = df.tail(40).to_dict(orient="records")
         for c in recent_candles:
             c['timestamps'] = pd.to_datetime(c['timestamps']).strftime("%Y-%m-%d %H:%M:%S")
 
@@ -139,6 +140,8 @@ def reset_stats():
 def as_dict_prediction(pred: CandlePrediction) -> Dict[str, Any]:
     return {
         "target_timestamp": pred.target_timestamp,
+        "target_slot_label": pred.target_slot_label,
+        "status_tag": pred.status_tag,
         "direction": pred.direction,
         "direction_symbol": pred.direction_symbol,
         "confidence": pred.confidence,

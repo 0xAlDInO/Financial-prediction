@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from model import Kronos, KronosTokenizer, KronosPredictor
-from model.live_streamer import MarketDataStreamer, HistoricalReplayStreamer, resample_klines
+from model.live_streamer import MarketDataStreamer, HistoricalReplayStreamer, resample_klines, get_next_candle_slot
 from model.sequential_predictor import SequentialNextCandlePredictor, CandlePrediction
 
 
@@ -66,18 +66,32 @@ class TestSequentialPredictor(unittest.TestCase):
         self.assertIn(pred.direction, ["ASCENDANT", "DESCENDANT"])
         self.assertIn(pred.direction_symbol, ["🟢", "🔴"])
         self.assertGreaterEqual(pred.predicted_high, pred.predicted_low)
+        self.assertIn(pred.direction, pred.status_tag)
 
         # Check target timestamp step is +5 minutes
         last_ts = pd.to_datetime(self.mock_df.iloc[-2]["timestamps"])
         expected_target = (last_ts + timedelta(minutes=5)).strftime("%Y-%m-%d %H:%M:%S")
         self.assertEqual(pred.target_timestamp, expected_target)
 
+    def test_slot_locking_during_interval(self):
+        engine = SequentialNextCandlePredictor(self.predictor, timeframe="5m", max_context=64, sample_count=1)
+        # At 11:14:10, prediction targets 11:15
+        t1 = datetime(2026, 11, 5, 11, 14, 10)
+        pred1 = engine.predict_next(self.mock_df, current_time=t1)
+        self.assertEqual(pred1.target_slot_label, "11:15")
+        self.assertTrue(pred1.status_tag.startswith("11:15"))
+
+        # At 11:14:50, prediction must remain strictly fixed (same object / no recalculation fluctuation)
+        t2 = datetime(2026, 11, 5, 11, 14, 50)
+        pred2 = engine.predict_next(self.mock_df, current_time=t2)
+        self.assertIs(pred1, pred2)
+
     def test_predict_next_candle_m15(self):
         engine = SequentialNextCandlePredictor(self.predictor, timeframe="15m", max_context=64, sample_count=1)
         pred = engine.predict_next(self.mock_df[:-1])
 
         last_ts = pd.to_datetime(self.mock_df.iloc[-2]["timestamps"])
-        expected_target = (last_ts + timedelta(minutes=15)).strftime("%Y-%m-%d %H:%M:%S")
+        expected_target = get_next_candle_slot(last_ts, "15m").strftime("%Y-%m-%d %H:%M:%S")
         self.assertEqual(pred.target_timestamp, expected_target)
 
     def test_evaluate_and_stats(self):
