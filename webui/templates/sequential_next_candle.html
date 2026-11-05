@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kronos - Prédiction Prochaine Bougie (M5 / M15)</title>
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <style>
+        :root {
+            --bg-color: #0b0e14;
+            --panel-bg: #151a24;
+            --accent-bullish: #00c087;
+            --accent-bearish: #ff3b69;
+            --text-main: #f0f3f8;
+            --text-dim: #8b9bb4;
+            --border-color: #242c3d;
+            --primary: #3b82f6;
+            --primary-hover: #2563eb;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+
+        header {
+            background-color: var(--panel-bg);
+            border-bottom: 1px solid var(--border-color);
+            padding: 16px 28px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo-title {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .badge {
+            background-color: rgba(59, 130, 246, 0.15);
+            color: #60a5fa;
+            border: 1px solid rgba(59, 130, 246, 0.4);
+            border-radius: 6px;
+            padding: 3px 8px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .container {
+            flex: 1;
+            display: grid;
+            grid-template-columns: 340px 1fr;
+            gap: 20px;
+            padding: 20px 28px;
+        }
+
+        .sidebar {
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+        }
+
+        .section-title {
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: var(--text-dim);
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        label {
+            font-size: 13px;
+            color: var(--text-dim);
+        }
+
+        select, input {
+            background: #0f131a;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 10px 12px;
+            color: var(--text-main);
+            font-size: 14px;
+            outline: none;
+        }
+
+        select:focus, input:focus {
+            border-color: var(--primary);
+        }
+
+        .btn-group {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        button {
+            border: none;
+            border-radius: 8px;
+            padding: 12px 16px;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: #fff;
+        }
+        .btn-primary:hover {
+            background: var(--primary-hover);
+        }
+
+        .btn-secondary {
+            background: #1f2736;
+            color: var(--text-main);
+            border: 1px solid var(--border-color);
+        }
+        .btn-secondary:hover {
+            background: #2a354a;
+        }
+
+        .status-box {
+            font-size: 12px;
+            color: var(--text-dim);
+            background: #0f131a;
+            padding: 10px;
+            border-radius: 8px;
+            border-left: 3px solid var(--primary);
+            line-height: 1.4;
+        }
+
+        .main-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .cards-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 16px;
+        }
+
+        .card {
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 18px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .card-header {
+            font-size: 12px;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .card-value {
+            font-size: 24px;
+            font-weight: 700;
+        }
+
+        .signal-banner {
+            background: var(--panel-bg);
+            border: 2px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .signal-title-group {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .signal-badge {
+            font-size: 28px;
+            font-weight: 800;
+            padding: 6px 16px;
+            border-radius: 8px;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .bullish {
+            color: var(--accent-bullish);
+            background: rgba(0, 192, 135, 0.12);
+            border: 1px solid rgba(0, 192, 135, 0.3);
+        }
+
+        .bearish {
+            color: var(--accent-bearish);
+            background: rgba(255, 59, 105, 0.12);
+            border: 1px solid rgba(255, 59, 105, 0.3);
+        }
+
+        .chart-container {
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 16px;
+            flex: 1;
+            min-height: 480px;
+        }
+
+        .table-container {
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 16px;
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        th, td {
+            padding: 10px 14px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        th {
+            color: var(--text-dim);
+            font-weight: 600;
+        }
+
+        .loader {
+            display: none;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #ffffff;
+            border-top: 2px solid transparent;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="logo-title">
+            <h1 style="font-size: 20px;">⚡ Kronos Next-Candle Predictor</h1>
+            <span class="badge">GBP/USD (M5 / M15)</span>
+        </div>
+        <div style="font-size: 13px; color: var(--text-dim);">
+            Modèle de fondation financier • Inférence séquentielle verrouillée par intervalle • GBP/USD
+        </div>
+    </header>
+
+    <div class="container">
+        <!-- Sidebar Controls -->
+        <div class="sidebar">
+            <div class="section-title">Configuration Marché</div>
+            <div class="form-group">
+                <label for="symbol">Paire d'actifs (Forex)</label>
+                <select id="symbol">
+                    <option value="GBP/USD" selected>GBP/USD (Forex Spot)</option>
+                    <option value="BTC/USD">BTC/USD (Bitcoin)</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label for="timeframe">Unité de Temps (Timeframe)</label>
+                <select id="timeframe">
+                    <option value="5m" selected>M5 (Bougie de 5 minutes)</option>
+                    <option value="15m">M15 (Bougie de 15 minutes)</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label for="mode">Mode de flux</label>
+                <select id="mode">
+                    <option value="live" selected>Direct Streaming (Binance)</option>
+                    <option value="replay">Simulation séquentielle (Replay)</option>
+                </select>
+            </div>
+
+            <div class="section-title" style="margin-top: 10px;">Contrôle Séquence</div>
+            <div class="btn-group">
+                <button class="btn-primary" id="btn-predict-next" onclick="predictNextStep()">
+                    <span class="loader" id="loader-btn"></span>
+                    <span>Prédire la prochaine bougie</span>
+                </button>
+                <button class="btn-secondary" id="btn-auto-step" onclick="toggleAutoSequence()">
+                    <span>▶ Démarrer boucle continue</span>
+                </button>
+                <button class="btn-secondary" onclick="resetStats()">
+                    <span>↺ Réinitialiser l'historique</span>
+                </button>
+            </div>
+
+            <div class="status-box" id="status-box">
+                Prêt. Cliquez sur "Prédire la prochaine bougie" pour interroger le modèle Kronos.
+            </div>
+        </div>
+
+        <!-- Main Display Panel -->
+        <div class="main-panel">
+            <!-- Signal Banner -->
+            <div class="signal-banner" id="signal-banner">
+                <div class="signal-title-group">
+                    <div style="font-size: 13px; color: var(--text-dim); text-transform: uppercase;">STATUT VERROUILLÉ PROCHAINE BOUGIE</div>
+                    <div id="target-timestamp-display" style="font-size: 18px; font-weight: 700; color: #60a5fa;">En attente de calcul...</div>
+                    <div style="font-size: 12px; color: var(--text-dim);">Prédiction fixe et stabilisée jusqu'à la clôture de la bougie</div>
+                </div>
+                <div id="signal-badge-container">
+                    <div class="signal-badge" id="signal-status-badge" style="background: rgba(255,255,255,0.05); color: var(--text-dim);">
+                        ⚪ EN ATTENTE
+                    </div>
+                </div>
+            </div>
+
+            <!-- Metric Cards Row -->
+            <div class="cards-row">
+                <div class="card">
+                    <div class="card-header">Dernier Prix Connu</div>
+                    <div class="card-value" id="val-current-price">--</div>
+                    <div style="font-size: 12px; color: var(--text-dim);" id="val-price-symbol">GBP/USD</div>
+                </div>
+                <div class="card">
+                    <div class="card-header">Clôture Prédite</div>
+                    <div class="card-value" id="val-pred-price">--</div>
+                    <div style="font-size: 12px;" id="val-pred-delta">--</div>
+                </div>
+                <div class="card">
+                    <div class="card-header">Niveau de Confiance</div>
+                    <div class="card-value" id="val-confidence">--%</div>
+                    <div style="font-size: 12px; color: var(--text-dim);">Modèle Kronos</div>
+                </div>
+                <div class="card">
+                    <div class="card-header">Précision Cumulée</div>
+                    <div class="card-value" id="val-accuracy">--%</div>
+                    <div style="font-size: 12px; color: var(--text-dim);" id="val-accuracy-ratio">0/0 bougies</div>
+                </div>
+            </div>
+
+            <!-- Candlestick Chart -->
+            <div class="chart-container" id="candlestick-chart"></div>
+
+            <!-- History Table -->
+            <div class="table-container">
+                <div class="section-title">Historique des Prédictions Séquentielles</div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Horodatage Cible</th>
+                            <th>Prix Début</th>
+                            <th>Direction Prédite</th>
+                            <th>Prix Prédit (C)</th>
+                            <th>Prix Réel (C)</th>
+                            <th>Résultat Réel</th>
+                            <th>Statut Prédiction</th>
+                        </tr>
+                    </thead>
+                    <tbody id="history-table-body">
+                        <tr>
+                            <td colspan="7" style="text-align: center; color: var(--text-dim);">Aucune prédiction enregistrée pour le moment.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let autoLoopInterval = null;
+        let isPredicting = false;
+
+        async function predictNextStep() {
+            if (isPredicting) return;
+            isPredicting = true;
+
+            const loader = document.getElementById('loader-btn');
+            const statusBox = document.getElementById('status-box');
+            loader.style.display = 'inline-block';
+            statusBox.innerText = "Interrogation du modèle Kronos en cours...";
+
+            const symbol = document.getElementById('symbol').value;
+            const timeframe = document.getElementById('timeframe').value;
+            const mode = document.getElementById('mode').value;
+
+            try {
+                const response = await fetch('/api/predict_next_step', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ symbol, timeframe, mode })
+                });
+
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || "Erreur serveur");
+                }
+
+                updateUIWithPrediction(data);
+                statusBox.innerText = `Prédiction calculée pour ${data.prediction.target_timestamp}.`;
+            } catch (err) {
+                console.error(err);
+                statusBox.innerText = "Erreur: " + err.message;
+            } finally {
+                loader.style.display = 'none';
+                isPredicting = false;
+            }
+        }
+
+        function updateUIWithPrediction(data) {
+            const pred = data.prediction;
+            const stats = data.stats;
+
+            // Display fixed status format: e.g. "11:15 [ASCENDANT]"
+            document.getElementById('target-timestamp-display').innerText = `Statut : ${pred.status_tag}`;
+            const badgeContainer = document.getElementById('signal-badge-container');
+            const isBullish = pred.direction === 'ASCENDANT';
+
+            badgeContainer.innerHTML = `
+                <div class="signal-badge ${isBullish ? 'bullish' : 'bearish'}">
+                    ${pred.direction_symbol} ${pred.status_tag}
+                </div>
+            `;
+
+            // Metrics
+            document.getElementById('val-current-price').innerText = Number(pred.current_close).toLocaleString();
+            document.getElementById('val-pred-price').innerText = Number(pred.predicted_close).toLocaleString();
+
+            const deltaElem = document.getElementById('val-pred-delta');
+            const sign = pred.expected_change_pct >= 0 ? '+' : '';
+            deltaElem.innerText = `${sign}${pred.expected_change_pct}% (${sign}${pred.expected_change_abs})`;
+            deltaElem.style.color = isBullish ? 'var(--accent-bullish)' : 'var(--accent-bearish)';
+
+            document.getElementById('val-confidence').innerText = `${Math.round(pred.confidence * 100)}%`;
+
+            // Stats
+            if (stats.total_predictions > 0) {
+                document.getElementById('val-accuracy').innerText = `${stats.accuracy_pct}%`;
+                document.getElementById('val-accuracy-ratio').innerText = `${stats.correct_predictions}/${stats.total_predictions} réussies`;
+            }
+
+            // Render Chart
+            renderChart(data.history_candles, pred);
+
+            // Update Table
+            updateHistoryTable(stats.history);
+        }
+
+        function renderChart(historyCandles, nextPred) {
+            const dates = historyCandles.map(c => c.timestamps);
+            const opens = historyCandles.map(c => c.open);
+            const highs = historyCandles.map(c => c.high);
+            const lows = historyCandles.map(c => c.low);
+            const closes = historyCandles.map(c => c.close);
+
+            // Historical Candlestick trace
+            const histTrace = {
+                x: dates,
+                open: opens,
+                high: highs,
+                low: lows,
+                close: closes,
+                type: 'candlestick',
+                name: 'Historique Réel',
+                increasing: { line: { color: '#00c087' } },
+                decreasing: { line: { color: '#ff3b69' } }
+            };
+
+            // Forecasted Next Candle trace
+            const isBullish = nextPred.direction === 'ASCENDANT';
+            const predColor = isBullish ? '#34d399' : '#f87171';
+
+            const predTrace = {
+                x: [nextPred.target_timestamp],
+                open: [nextPred.predicted_open],
+                high: [nextPred.predicted_high],
+                low: [nextPred.predicted_low],
+                close: [nextPred.predicted_close],
+                type: 'candlestick',
+                name: 'Prochaine Bougie Prédite',
+                increasing: { line: { color: predColor, width: 2 } },
+                decreasing: { line: { color: predColor, width: 2 } }
+            };
+
+            const layout = {
+                dragmode: 'zoom',
+                margin: { r: 30, t: 30, b: 40, l: 60 },
+                showlegend: true,
+                legend: { orientation: 'h', y: 1.1, font: { color: '#f0f3f8' } },
+                xaxis: {
+                    rangeslider: { visible: false },
+                    gridcolor: '#242c3d',
+                    tickfont: { color: '#8b9bb4' }
+                },
+                yaxis: {
+                    gridcolor: '#242c3d',
+                    tickfont: { color: '#8b9bb4' }
+                },
+                paper_bgcolor: 'transparent',
+                plot_bgcolor: 'transparent'
+            };
+
+            Plotly.newPlot('candlestick-chart', [histTrace, predTrace], layout, { responsive: true });
+        }
+
+        function updateHistoryTable(history) {
+            const tbody = document.getElementById('history-table-body');
+            if (!history || history.length === 0) return;
+
+            tbody.innerHTML = '';
+            history.slice().reverse().forEach(item => {
+                const tr = document.createElement('tr');
+                const isCorrect = item.is_correct;
+                const badgeStatus = isCorrect === true ?
+                    '<span style="color: var(--accent-bullish); font-weight:600;">✓ Correct</span>' :
+                    (isCorrect === false ? '<span style="color: var(--accent-bearish); font-weight:600;">✗ Inexact</span>' : 'En cours');
+
+                const actualClose = item.actual_candle ? item.actual_candle.close : '--';
+                const actualDirection = item.actual_candle ? (item.actual_candle.close >= item.current_close ? '🟢 ASCENDANT' : '🔴 DESCENDANT') : '--';
+
+                tr.innerHTML = `
+                    <td>${item.target_timestamp}</td>
+                    <td>${item.current_close}</td>
+                    <td>${item.direction_symbol} ${item.direction}</td>
+                    <td>${item.predicted_close}</td>
+                    <td>${actualClose}</td>
+                    <td>${actualDirection}</td>
+                    <td>${badgeStatus}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function toggleAutoSequence() {
+            const btn = document.getElementById('btn-auto-step');
+            if (autoLoopInterval) {
+                clearInterval(autoLoopInterval);
+                autoLoopInterval = null;
+                btn.innerHTML = '<span>▶ Démarrer boucle continue</span>';
+                document.getElementById('status-box').innerText = "Boucle continue arrêtée.";
+            } else {
+                predictNextStep();
+                autoLoopInterval = setInterval(predictNextStep, 8000); // Poll every 8s
+                btn.innerHTML = '<span>⏸ Pause boucle continue</span>';
+                document.getElementById('status-box').innerText = "Boucle continue active (évaluation séquentielle toutes les 8s).";
+            }
+        }
+
+        async function resetStats() {
+            await fetch('/api/reset_stats', { method: 'POST' });
+            document.getElementById('val-accuracy').innerText = '--%';
+            document.getElementById('val-accuracy-ratio').innerText = '0/0 bougies';
+            document.getElementById('history-table-body').innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-dim);">Historique réinitialisé.</td></tr>';
+            document.getElementById('status-box').innerText = "Historique réinitialisé.";
+        }
+
+        // Auto load initial step
+        window.addEventListener('DOMContentLoaded', () => {
+            predictNextStep();
+        });
+    </script>
+</body>
+</html>
